@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import MessageBody from "@/components/message-body";
+import ThemeToggle from "@/components/theme-toggle";
 import { loadApuntesFromFolder, type ApunteSource } from "@/lib/apuntes";
 import {
   DEFAULT_MODEL,
@@ -87,7 +88,6 @@ export default function TutorChat() {
     } catch {
       void reloadFromFolder();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -198,6 +198,7 @@ export default function TutorChat() {
           </p>
         </div>
         <div className="flex gap-2">
+          <ThemeToggle />
           <Button
             variant={mode === "preguntar" ? "default" : "outline"}
             onClick={() => setMode("preguntar")}
