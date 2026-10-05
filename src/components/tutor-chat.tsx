@@ -171,7 +171,7 @@ export default function TutorChat() {
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">Tutor de la asignatura</h1>
+          <h1 className="text-2xl font-semibold">Asistente de IA</h1>
           <p className="text-sm text-muted-foreground">
             Cada alumno pone su propia API key de Gemini. La key solo vive en
             su navegador.{" "}

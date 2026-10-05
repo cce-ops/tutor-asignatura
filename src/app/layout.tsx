@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Tutor de la asignatura",
+  title: "Asistente de IA",
   description: "Chat con apuntes: cada alumno usa su propia API key de Gemini",
 };
 
