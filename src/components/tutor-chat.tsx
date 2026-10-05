@@ -22,7 +22,6 @@ interface Message extends ChatTurn {
 
 const API_KEY_LS = "tutor.apiKey";
 const MODEL_LS = "tutor.model";
-const APUNTES_LS = "tutor.apuntes";
 
 export default function TutorChat() {
   const [apiKey, setApiKey] = useState("");
@@ -37,7 +36,6 @@ export default function TutorChat() {
   const [error, setError] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
   const [sources, setSources] = useState<ApunteSource[]>([]);
-  const [apuntesEdited, setApuntesEdited] = useState(false);
   const [apuntesLoading, setApuntesLoading] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -48,14 +46,11 @@ export default function TutorChat() {
       const loaded = await loadApuntesFromFolder();
       setApuntes(loaded.text || "No se pudo extraer texto de los archivos.");
       setSources(loaded.sources);
-      setApuntesEdited(false);
-      try {
-        localStorage.removeItem(APUNTES_LS);
-      } catch {
-        // ignorar
+      for (const s of loaded.sources) {
+        if (s.skipped) console.warn(`Apunte omitido: ${s.file} — ${s.skipped}`);
       }
     } catch {
-      setApuntes("Pega aquí los apuntes de la asignatura.");
+      setApuntes("No se pudieron cargar los apuntes de la asignatura.");
       setSources([]);
     } finally {
       setApuntesLoading(false);
@@ -66,7 +61,6 @@ export default function TutorChat() {
     try {
       const k = localStorage.getItem(API_KEY_LS);
       const m = localStorage.getItem(MODEL_LS);
-      const a = localStorage.getItem(APUNTES_LS);
       if (k) setApiKey(k);
       if (m && GEMINI_MODELS.some((x) => x.id === m)) {
         setModel(m);
@@ -74,20 +68,12 @@ export default function TutorChat() {
         // Modelos antiguos (p. ej. gemini-2.5-*) ya no existen: migrar al actual
         setModel(DEFAULT_MODEL);
       }
-      if (a) {
-        setApuntes(a);
-        setApuntesEdited(true);
-        setApuntesLoading(false);
-        // Cargar solo la lista de fuentes en segundo plano
-        loadApuntesFromFolder()
-          .then((loaded) => setSources(loaded.sources))
-          .catch(() => {});
-      } else {
-        void reloadFromFolder();
-      }
+      // Limpia el antiguo texto pegado a mano: la carpeta manda.
+      localStorage.removeItem("tutor.apuntes");
     } catch {
-      void reloadFromFolder();
+      // localStorage no disponible
     }
+    void reloadFromFolder();
   }, []);
 
   useEffect(() => {
@@ -253,57 +239,16 @@ export default function TutorChat() {
             ))}
           </select>
 
-          <label className="text-sm font-medium">
-            Apuntes (los sube el profesor)
-          </label>
-          <textarea
-            value={apuntes}
-            onChange={(e) => {
-              setApuntes(e.target.value);
-              setApuntesEdited(true);
-              persist(APUNTES_LS, e.target.value);
-            }}
-            rows={14}
-            className="w-full rounded-lg border bg-background p-2 font-mono text-xs"
-          />
           <p className="text-xs text-muted-foreground">
             El profesor sube PDF, Word (.docx), PowerPoint (.pptx), Excel
             (.xlsx), MD o TXT a <code>public/apuntes/</code> y los lista en{" "}
             <code>public/apuntes/manifest.json</code>. Luego redespliega.
-            También puedes pegar aquí el texto para probar sin redesplegar
-            (queda guardado en este navegador).
           </p>
-          {apuntesLoading ? (
-            <p className="text-xs text-muted-foreground">
-              Leyendo archivos de la carpeta…
-            </p>
-          ) : (
-            sources.length > 0 && (
-              <div className="rounded-lg bg-secondary/60 p-2 text-xs">
-                <p className="font-medium">Fuentes cargadas:</p>
-                <ul className="list-disc pl-4">
-                  {sources.map((s) => (
-                    <li key={s.file}>
-                      {s.file}
-                      {s.skipped
-                        ? ` — omitido: ${s.skipped}`
-                        : ` (${s.chars.toLocaleString("es")} caracteres${s.truncated ? ", recortado" : ""})`}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )
-          )}
-          {apuntesEdited && (
-            <div className="flex flex-col gap-1">
-              <p className="text-xs text-muted-foreground">
-                Estás viendo texto editado en este navegador, no la carpeta.
-              </p>
-              <Button variant="outline" onClick={() => void reloadFromFolder()}>
-                Recargar desde la carpeta
-              </Button>
-            </div>
-          )}
+          <div className="rounded-lg bg-secondary/60 p-2 text-xs">
+            {apuntesLoading
+              ? "Leyendo documentos…"
+              : `La IA tiene en cuenta ${sources.filter((s) => !s.skipped).length} documentos de la asignatura.`}
+          </div>
         </section>
 
         <section className="flex min-h-[60vh] flex-col rounded-xl border bg-card">
