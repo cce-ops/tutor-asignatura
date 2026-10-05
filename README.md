@@ -1,156 +1,103 @@
-<div align="center">
+# IA PE Chatbot — Tutor de la asignatura
 
-# IA PE Chatbot
+Chat web donde los alumnos preguntan sobre los apuntes y envían sus trabajos para recibir
+corrección y feedback con IA. Cada alumno usa su **propia API key gratuita de Gemini**
+(BYOK): el profesor no paga nada y no necesita dejar ningún PC encendido.
 
-https://ia-pe-gamma.vercel.app/
+- **Demo en producción:** https://ia-pe-gamma.vercel.app
+- **Repo:** https://github.com/cce-ops/tutor-asignatura
 
-### Clone any website with one command
+> Proyecto basado en la plantilla
+> [ai-website-cloner-template](https://github.com/JCodesMore/ai-website-cloner-template),
+> reutilizada como base Next.js (no como clonador).
 
-Give your AI coding agent a URL and watch it recreate the website as a clean Next.js app.
+## Cómo lo usa el alumno
 
-**Best results with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) + Opus 5.5. Also supports Codex, Cursor, and OpenCode.**
+1. Consigue una API key gratuita en [Google AI Studio](https://aistudio.google.com/apikey)
+   y pégala en la web. La key **solo vive en su navegador** (`localStorage`); nunca pasa
+   por ningún servidor nuestro: las llamadas van directas del navegador a Google.
+2. Elige modo **Preguntar** (dudas sobre los apuntes) o **Corregir trabajo**
+   (adjunta PDF/imagen o pega su solución y recibe qué está bien, errores,
+   cómo mejorarlo y nota orientativa 0–10).
+3. Puede adjuntar archivos a sus mensajes (PDF, imágenes, TXT/MD).
 
-[![Use this template](https://img.shields.io/badge/Use_this_template-Create_your_copy-2ea44f?style=for-the-badge&logo=github&logoColor=white)](https://github.com/JCodesMore/ai-website-cloner-template/generate) [![Discord](https://img.shields.io/badge/Join_the_community-Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/hrTSX5yTpB)
+### Modelos y reintentos automáticos
 
-[Quick Start](#quick-start) · [Watch Demo](#demo) · [Supported Platforms](#supported-platforms)
+Selector con los modelos Gemini vigentes (`3.5-flash-lite` por defecto por su mayor
+cuota gratuita, además de `3.1-flash-lite`, `3.5/3.6/3.7/3.8-flash`). Si un modelo
+falla o deja de existir, la app **reintenta unos segundos y pasa automáticamente al
+siguiente** hasta conseguir respuesta o agotar la lista. La respuesta indica con qué
+modelo se obtuvo.
 
-<a href="https://github.com/JCodesMore/ai-website-cloner-template/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License" /></a> <a href="https://github.com/JCodesMore/ai-website-cloner-template"><img src="https://img.shields.io/github/stars/JCodesMore/ai-website-cloner-template?style=flat" alt="Stars" /></a> <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/JCodesMore/ai-website-cloner-template/badges/token-badge.json" alt="tokens" />
+Las respuestas se muestran con formato (Markdown + fórmulas LaTeX).
 
-  <a href="https://trendshift.io/repositories/24302?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-24302" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/24302" alt="JCodesMore%2Fai-website-cloner-template | Trendshift" width="250" height="55" /></a> <a href="https://www.star-history.com/jcodesmore/ai-website-cloner-template/"><picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=JCodesMore/ai-website-cloner-template&amp;theme=dark" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=JCodesMore/ai-website-cloner-template" /><img alt="Star History Global Rank" src="https://api.star-history.com/badge?repo=JCodesMore/ai-website-cloner-template" width="216" height="55" /></picture></a>
+## Cómo sube apuntes el profesor
 
-</div>
+1. Copia los archivos en [`public/apuntes/`](public/apuntes/).
+   Formatos: PDF, Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`), MD, TXT.
+2. Lístalos en [`public/apuntes/manifest.json`](public/apuntes/manifest.json).
+3. Haz `push` a `main` (o súbelos desde la web de GitHub). Con el auto-despliegue
+   conectado, Vercel publica solos los cambios.
 
----
+La web extrae el texto en el navegador (pdf.js, mammoth, SheetJS), lo muestra en el
+recuadro de apuntes separado por fuente y se lo pasa a Gemini como conocimiento.
+Límites para no fundir la cuota gratuita: 120.000 caracteres por archivo y 400.000
+en total (si se recorta, se avisa en “Fuentes cargadas”).
 
-## Demo
+## Desarrollo en local
 
-[![Watch the demo](docs/design-references/comparison.png)](https://youtu.be/O669pVZ_qr0)
+Requiere **Node.js 24+**.
 
-> Click the image above to watch the full demo on YouTube.
-
-## Quick Start
-
-### 1. Set up your project
-
-**Recommended: ask your agent.** Paste this into Codex, Claude Code, or your coding agent:
-
-```text
-Set up https://github.com/JCodesMore/ai-website-cloner-template
-as a standalone project in a new folder on my computer.
-Ask me where to put it. Clone the repository, remove its origin remote,
-install dependencies, and run npm run check. Leave it ready for me
-to clone a website.
+```bash
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+nvm use 24
+cd tutor-asignatura
+npm install
+npm run dev -- -p 3100   # http://localhost:3100 (el 3000 suele ocuparlo OpenWebUI)
 ```
 
-**Or create your own GitHub repository:**
+Comprobación completa (lint + typecheck + build):
 
-[![Use this template](https://img.shields.io/badge/Use_this_template-Create_your_copy-2ea44f?style=for-the-badge&logo=github&logoColor=white)](https://github.com/JCodesMore/ai-website-cloner-template/generate)
-
-Give it a name and click **Create repository**. Then give your agent the new repository's link and ask it to clone it onto your computer, install dependencies, and run `npm run check`.
-
-### 2. Clone a website
-
-Open the project in your agent with browser access enabled. In Claude Code or Cursor, run:
-
-```text
-/clone-website https://example.com
+```bash
+npm run check
 ```
 
-Replace the URL with the website you want to recreate. Once it's built, ask your agent for any changes you want.
+## Despliegue
 
-## Supported Platforms
+Despliegue manual a producción:
 
-| Agent                                                         | Status                     |
-| ------------------------------------------------------------- | -------------------------- |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | **Recommended** — Opus 5.5 |
-| [Codex CLI](https://github.com/openai/codex)                  | Supported                  |
-| [OpenCode](https://opencode.ai/)                              | Supported                  |
-| [Cursor](https://cursor.com/)                                 | Supported                  |
+```bash
+vercel --prod --yes
+```
 
-## Prerequisites
+Auto-despliegue con cada `push`: en el dashboard de Vercel, Settings → Git → Connect
+al repo (instala la integración de GitHub si la pide). Vercel acepta repos privados
+en el plan gratuito.
 
-- [Node.js](https://nodejs.org/) 24+
-- An AI coding agent (see [Supported Platforms](#supported-platforms))
+## Costes y privacidad
 
-## Tech Stack
+- **Coste:** 0 €. Hosting en el free tier de Vercel + cuota gratuita de Gemini por
+  alumno (cada key tiene su propia cuota).
+- **Privacidad:** en el free tier de Gemini, Google puede usar el contenido para
+  mejorar sus productos. No subir datos personales de alumnos.
 
-- **Next.js 16** — App Router, React 19, TypeScript strict
-- **shadcn/ui** — Base UI primitives + Tailwind CSS v4
-- **Tailwind CSS v4** — oklch design tokens
-- **Lucide React** — default icons (replaced by extracted SVGs during cloning)
-
-## How It Works
-
-The `/clone-website` skill follows four steps:
-
-1. **Map** — map source URLs to local routes and preserve existing work.
-2. **Observe** — inspect desktop/mobile pages, extract real assets and fonts, and exercise alternate states.
-3. **Build** — implement editable components and working interactions; delegate independent sections when useful.
-4. **Compare** — review source and local pages at matched sizes/states, repair visible differences, and run the production check.
-
-Framer pages and animated sites have focused inspection guidance for responsive variants, media, sticky scenes, and scroll/time-driven motion. Direct HTTP or asset tools handle extraction where practical; browser comparisons establish appearance and behavior. Deliverables include route mappings, run instructions, comparison screenshots, and any remaining gaps.
-
-## Use Cases
-
-- **Platform migration** — rebuild a site you own from WordPress/Webflow/Squarespace into a modern Next.js codebase
-- **Lost source code** — your site is live but the repo is gone, the developer left, or the stack is legacy. Get the code back in a modern format
-- **Learning** — deconstruct how production sites achieve specific layouts, animations, and responsive behavior by working with real code
-
-## Not Intended For
-
-- **Phishing or impersonation** — this project must not be used for deceptive purposes, impersonation, or any activity that breaks the law.
-- **Passing off someone's design as your own** — logos, brand assets, and original copy belong to their owners.
-- **Violating terms of service** — some sites explicitly prohibit scraping or reproduction. Check first.
-
-## Project Structure
+## Estructura
 
 ```
 src/
-  app/              # Next.js routes
-  components/       # React components
-    ui/             # shadcn/ui primitives
-    sites/<site>/   # Source-specific components and extracted SVGs
-  lib/utils.ts      # cn() utility
-  types/            # TypeScript interfaces
-  hooks/            # Custom React hooks
-public/
-  sites/<site>/     # Source-specific images, fonts, videos, and other assets
-docs/
-  research/<site>/  # Page brief, asset map, and inspection evidence
-  design-references/ # Screenshots
-.agents/skills/
-  clone-website/    # Canonical skill and inspection reference
-.claude/commands/
-  clone-website.md  # Thin Claude Code bridge
-AGENTS.md           # Agent instructions (single source of truth)
-CLAUDE.md           # Claude Code config (imports AGENTS.md)
+  app/                    # Next.js (page.tsx, layout.tsx)
+  components/
+    tutor-chat.tsx        # Chat, API key, modos, adjuntos
+    message-body.tsx      # Render Markdown + KaTeX
+    ui/button.tsx         # shadcn/ui
+  lib/
+    gemini.ts             # Llamadas a Gemini + fallback entre modelos
+    apuntes.ts            # Carga y extracción de public/apuntes
+  types/mammoth.d.ts
+public/apuntes/           # Apuntes del profesor + manifest.json
 ```
 
-## Commands
+## Licencia
 
-```bash
-npm run dev    # Start dev server
-npm run build  # Production build
-npm run lint   # ESLint check
-npm run typecheck # TypeScript check
-npm run check  # Run lint + typecheck + build
-```
-
-### If using docker
-
-```bash
-docker compose up app --build # build and run the app
-docker compose up dev --build # run the app in dev mode on port 3001
-```
-
-## Agent Support
-
-The project keeps one portable Agent Skill at `.agents/skills/clone-website/`. Codex, Cursor, and OpenCode read it directly. Claude Code uses the small command bridge at `.claude/commands/clone-website.md` so `/clone-website` and its arguments continue to work without exposing a duplicate skill to the other agents.
-
-## Star History
-
-![Star History Chart](docs/assets/star-history.png)
-
-## License
-
-MIT
+MIT.
