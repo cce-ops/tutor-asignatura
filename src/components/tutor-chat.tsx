@@ -328,11 +328,15 @@ export default function TutorChat() {
                 ref={fileRef}
                 type="file"
                 multiple
-                accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.webp"
+                accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg,.webp,.docx,.xlsx,.xls,.pptx"
                 className="hidden"
                 onChange={onAttach}
               />
-              <Button variant="outline" onClick={() => fileRef.current?.click()}>
+              <Button
+                variant="outline"
+                onClick={() => fileRef.current?.click()}
+                title="PDF, Word, Excel, PowerPoint, TXT, MD, CSV o imagen"
+              >
                 Adjuntar
               </Button>
               <input

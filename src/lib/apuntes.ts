@@ -76,21 +76,32 @@ async function extractPptx(buf: ArrayBuffer): Promise<string> {
 async function extractOne(file: string): Promise<string> {
   const res = await fetch(`/apuntes/${encodeURIComponent(file)}`);
   if (!res.ok) throw new Error(`No se pudo descargar ${file} (${res.status})`);
-  const lower = file.toLowerCase();
-  if (lower.endsWith(".md") || lower.endsWith(".txt")) {
-    return await res.text();
-  }
   const buf = await res.arrayBuffer();
+  return extractAttachment(file, buf);
+}
+
+/**
+ * Extrae texto de un archivo (de la carpeta de apuntes o adjuntado por un
+ * alumno) según su extensión. Lanza si el formato no es soportado.
+ */
+export async function extractAttachment(
+  fileName: string,
+  buf: ArrayBuffer,
+): Promise<string> {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".txt") || lower.endsWith(".csv")) {
+    return new TextDecoder().decode(buf);
+  }
   if (lower.endsWith(".pdf")) return await extractPdf(buf);
   if (lower.endsWith(".docx")) {
     const r = await extractRawText({ arrayBuffer: buf });
     return r.value;
   }
   if (lower.endsWith(".pptx")) return await extractPptx(buf);
-  if (lower.endsWith(".xlsx") || lower.endsWith(".xls") || lower.endsWith(".csv")) {
+  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
     return extractSheet(buf);
   }
-  throw new Error(`Formato no soportado: ${file} (usa PDF, DOCX, PPTX, XLSX, MD o TXT)`);
+  throw new Error(`Formato no soportado: ${fileName}`);
 }
 
 function cellText(cell: Element, tag: string): string {

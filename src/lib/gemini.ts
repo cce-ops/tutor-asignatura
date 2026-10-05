@@ -30,7 +30,35 @@ interface GeminiPart {
   inline_data?: { mime_type: string; data: string };
 }
 
+import { extractAttachment } from "./apuntes";
+
 export function fileToOutgoing(file: File): Promise<OutgoingFile> {
+  const lower = file.name.toLowerCase();
+  // Word/Excel/PowerPoint: Gemini no los acepta como adjunto directo,
+  // se extrae el texto en el navegador igual que con los apuntes.
+  if (
+    lower.endsWith(".docx") ||
+    lower.endsWith(".xlsx") ||
+    lower.endsWith(".xls") ||
+    lower.endsWith(".pptx")
+  ) {
+    return file
+      .arrayBuffer()
+      .then(async (buf) => {
+        const text = await extractAttachment(file.name, buf);
+        return {
+          name: file.name,
+          mimeType: "text/plain",
+          base64: "",
+          asText: capText(text),
+        };
+      })
+      .catch((e) => {
+        throw new Error(
+          e instanceof Error ? e.message : `No se pudo leer ${file.name}`,
+        );
+      });
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -58,7 +86,7 @@ export function fileToOutgoing(file: File): Promise<OutgoingFile> {
             name: file.name,
             mimeType: file.type || "text/plain",
             base64,
-            asText: decoded,
+            asText: capText(decoded),
           });
           return;
         } catch {
@@ -74,6 +102,13 @@ export function fileToOutgoing(file: File): Promise<OutgoingFile> {
     reader.onerror = () => reject(new Error("No se pudo leer el archivo"));
     reader.readAsDataURL(file);
   });
+}
+
+function capText(text: string): string {
+  const MAX = 60_000;
+  return text.length > MAX
+    ? text.slice(0, MAX) + "\n[…adjunto recortado por tamaño…]"
+    : text;
 }
 
 function toGeminiParts(userText: string, files: OutgoingFile[]): GeminiPart[] {
