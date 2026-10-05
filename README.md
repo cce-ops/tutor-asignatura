@@ -39,6 +39,19 @@ Las respuestas se muestran con formato (Markdown + fórmulas LaTeX).
 3. Haz `push` a `main` (o súbelos desde la web de GitHub). Con el auto-despliegue
    conectado, Vercel publica solos los cambios.
 
+### Actualizar apuntes sin terminal (solo navegador)
+
+1. Entra en https://github.com/cce-ops/tutor-asignatura/tree/main/public/apuntes.
+2. **Add file → Upload files**: arrastra los PDF/Word/PPT/Excel y **Commit changes**.
+3. Abre `manifest.json` (lápiz ✏️): añade cada nombre entre comillas en la lista
+   y **Commit changes**. Ejemplo:
+   ```json
+   { "files": ["tema1.pdf", "tema2.pptx"] }
+   ```
+4. Para borrar un tema: elimina el archivo (menú `···` → Delete) y quítalo de la
+   lista de `manifest.json`.
+5. Vercel redespliega solo en 1–2 minutos.
+
 La web extrae el texto en el navegador (pdf.js, mammoth y lector propio de Excel
 sobre JSZip), lo muestra en el recuadro de apuntes separado por fuente y se lo
 pasa a Gemini como conocimiento.
