@@ -28,7 +28,6 @@ export default function TutorChat() {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
   const [apuntes, setApuntes] = useState("Cargando apuntes…");
-  const [mode, setMode] = useState<"preguntar" | "corregir">("preguntar");
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<OutgoingFile[]>([]);
@@ -142,11 +141,11 @@ export default function TutorChat() {
       const { text: reply, modelUsed } = await sendToGeminiWithFallback({
         apiKey: key,
         model,
-        systemPrompt: buildSystemPrompt(apuntes, mode),
+        systemPrompt: buildSystemPrompt(apuntes),
         history: past,
         userText:
-          mode === "corregir" && !userText
-            ? "Corrige el trabajo adjunto según los apuntes y da feedback detallado."
+          !userText && files.length > 0
+            ? "Revisa los archivos adjuntos: si es un trabajo, corrígelo con feedback detallado y nota; si es material para una pregunta, responde usándolo junto con los apuntes."
             : userText,
         files,
         onStatus: (s) => setStatus(s),
@@ -187,18 +186,6 @@ export default function TutorChat() {
         </div>
         <div className="flex gap-2">
           <ThemeToggle />
-          <Button
-            variant={mode === "preguntar" ? "default" : "outline"}
-            onClick={() => setMode("preguntar")}
-          >
-            Preguntar
-          </Button>
-          <Button
-            variant={mode === "corregir" ? "default" : "outline"}
-            onClick={() => setMode("corregir")}
-          >
-            Corregir trabajo
-          </Button>
         </div>
       </header>
 
@@ -261,9 +248,8 @@ export default function TutorChat() {
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {messages.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                {mode === "corregir"
-                  ? "Adjunta tu trabajo en PDF/imagen o pega tu solución y pulsa Enviar."
-                  : "Haz una pregunta sobre los apuntes para empezar."}
+                Adjunta tu trabajo en PDF, Word (.docx) o Markdown, pega tu
+                solución o pregunta cualquier duda sobre los apuntes.
               </p>
             )}
             {messages.map((m, i) => (
@@ -373,11 +359,7 @@ export default function TutorChat() {
                     void onSend();
                   }
                 }}
-                placeholder={
-                  mode === "corregir"
-                    ? "Pega tu solución o describe qué entregar…"
-                    : "Escribe tu pregunta…"
-                }
+                placeholder="Escribe tu pregunta, pega tu solución o adjunta tu trabajo…"
                 className="h-9 flex-1 rounded-lg border bg-background px-2 text-sm"
               />
               <Button onClick={() => void onSend()} disabled={loading}>

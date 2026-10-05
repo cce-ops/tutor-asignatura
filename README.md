@@ -16,10 +16,13 @@ corrección y feedback con IA. Cada alumno usa su **propia API key gratuita de G
 1. Consigue una API key gratuita en [Google AI Studio](https://aistudio.google.com/apikey)
    y pégala en la web. La key **solo vive en su navegador** (`localStorage`); nunca pasa
    por ningún servidor nuestro: las llamadas van directas del navegador a Google.
-2. Elige modo **Preguntar** (dudas sobre los apuntes) o **Corregir trabajo**
-   (adjunta PDF/imagen o pega su solución y recibe qué está bien, errores,
-   cómo mejorarlo y nota orientativa 0–10).
-3. Puede adjuntar archivos a sus mensajes (PDF, imágenes, TXT/MD).
+2. Escribe en un solo chat: si adjunta su trabajo o pega su solución, recibe
+   corrección (qué está bien, errores, cómo mejorarlo y nota 0–10); si
+   pregunta, recibe explicación con los apuntes. El hilo continúa y puede
+   corregir y preguntar seguidos sin cambiar de modo.
+3. Puede adjuntar archivos a sus mensajes: PDF, Word, Excel, PowerPoint, TXT,
+   MD, CSV e imágenes (las imágenes cuestan más cuota: mejor convertir a
+   Markdown primero con el recuadro lateral).
 
 ### Modelos y reintentos automáticos
 
