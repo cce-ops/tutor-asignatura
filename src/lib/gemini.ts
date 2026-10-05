@@ -104,7 +104,7 @@ export function fileToOutgoing(file: File): Promise<OutgoingFile> {
   });
 }
 
-function capText(text: string): string {
+export function capText(text: string): string {
   const MAX = 60_000;
   return text.length > MAX
     ? text.slice(0, MAX) + "\n[…adjunto recortado por tamaño…]"

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import MessageBody from "@/components/message-body";
 import ThemeToggle from "@/components/theme-toggle";
+import ConvertCard from "@/components/convert-card";
 import { loadApuntesFromFolder, type ApunteSource } from "@/lib/apuntes";
 import {
   DEFAULT_MODEL,
@@ -35,6 +36,7 @@ export default function TutorChat() {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showKey, setShowKey] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
   const [sources, setSources] = useState<ApunteSource[]>([]);
   const [apuntesLoading, setApuntesLoading] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -201,6 +203,7 @@ export default function TutorChat() {
       </header>
 
       <div className="grid gap-4 lg:grid-cols-[340px_1fr]">
+        <div className="flex flex-col gap-4">
         <section className="flex flex-col gap-3 rounded-xl border bg-card p-4">
           <label className="text-sm font-medium">API key de Gemini</label>
           <div className="flex gap-2">
@@ -250,6 +253,9 @@ export default function TutorChat() {
               : `La IA tiene en cuenta ${sources.filter((s) => !s.skipped).length} documentos de la asignatura.`}
           </div>
         </section>
+
+        <ConvertCard onUseInChat={(f) => setPending((p) => [...p, f])} />
+        </div>
 
         <section className="flex min-h-[60vh] flex-col rounded-xl border bg-card">
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -303,6 +309,17 @@ export default function TutorChat() {
           )}
 
           <div className="border-t p-3">
+            {showHelp && (
+              <div className="mb-2 rounded-lg bg-secondary/60 p-2 text-xs">
+                <p className="font-medium">¿Qué formato adjunto?</p>
+                <p>
+                  Para gastar menos cuota: MD o TXT (exactos y ligeros) &gt;
+                  DOCX (bien) &gt; PDF digital (bien, pero más tokens) &gt;
+                  foto o escaneado (último recurso). Puedes convertir tu
+                  archivo a Markdown en el recuadro lateral antes de adjuntarlo.
+                </p>
+              </div>
+            )}
             {pending.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2">
                 {pending.map((f, i) => (
@@ -338,6 +355,14 @@ export default function TutorChat() {
                 title="PDF, Word, Excel, PowerPoint, TXT, MD, CSV o imagen"
               >
                 Adjuntar
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setShowHelp((s) => !s)}
+                title="Recomendación de formatos"
+                aria-label="Ayuda sobre formatos de archivo"
+              >
+                ?
               </Button>
               <input
                 value={input}
