@@ -39,8 +39,9 @@ Las respuestas se muestran con formato (Markdown + fórmulas LaTeX).
 3. Haz `push` a `main` (o súbelos desde la web de GitHub). Con el auto-despliegue
    conectado, Vercel publica solos los cambios.
 
-La web extrae el texto en el navegador (pdf.js, mammoth, SheetJS), lo muestra en el
-recuadro de apuntes separado por fuente y se lo pasa a Gemini como conocimiento.
+La web extrae el texto en el navegador (pdf.js, mammoth y lector propio de Excel
+sobre JSZip), lo muestra en el recuadro de apuntes separado por fuente y se lo
+pasa a Gemini como conocimiento.
 Límites para no fundir la cuota gratuita: 120.000 caracteres por archivo y 400.000
 en total (si se recorta, se avisa en “Fuentes cargadas”).
 

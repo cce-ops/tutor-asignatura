@@ -1,10 +1,10 @@
 import { GlobalWorkerOptions, getDocument } from "pdfjs-dist";
 import { extractRawText } from "mammoth";
 import JSZip from "jszip";
-import { read, utils } from "xlsx";
 
-// Versión instalada de pdfjs-dist (actualizar si se actualiza el paquete).
-const PDFJS_VERSION = "6.4.299";
+// El worker de pdf.js se auto-hospeda en public/ (ver postinstall en
+// package.json) para no ejecutar JS de un CDN en nuestro origen.
+// Actualizar la copia al cambiar la versión de pdfjs-dist.
 
 // Límite por archivo y total para no saturar la cuota gratuita de Gemini.
 const MAX_CHARS_PER_FILE = 120_000;
@@ -13,7 +13,7 @@ const MAX_TOTAL_CHARS = 400_000;
 let workerReady = false;
 function ensureWorker() {
   if (!workerReady && typeof window !== "undefined") {
-    GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+    GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     workerReady = true;
   }
 }
@@ -93,12 +93,106 @@ async function extractOne(file: string): Promise<string> {
   throw new Error(`Formato no soportado: ${file} (usa PDF, DOCX, PPTX, XLSX, MD o TXT)`);
 }
 
-function extractSheet(buf: ArrayBuffer): string {
-  const wb = read(buf, { type: "array" });
+function cellText(cell: Element, tag: string): string {
+  const el = cell.getElementsByTagName(tag)[0];
+  return el?.textContent ?? "";
+}
+
+function colToIndex(col: string): number {
+  let n = 0;
+  for (const ch of col.toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n - 1;
+}
+
+/**
+ * Lector mínimo de XLSX con JSZip (sin dependencias extra): resuelve
+ * sharedStrings, nombres de hoja vía workbook.xml + rels y celdas por tipo.
+ */
+async function extractSheet(buf: ArrayBuffer): Promise<string> {
+  const zip = await JSZip.loadAsync(buf);
+  const file = async (name: string): Promise<string> => {
+    const f = zip.file(name);
+    if (!f) throw new Error(`Excel sin ${name}`);
+    return f.async("string");
+  };
+  const parser = new DOMParser();
+  const parse = (xml: string): Document =>
+    parser.parseFromString(xml, "application/xml");
+
+  const wb = parse(await file("xl/workbook.xml"));
+  const rels = parse(await file("xl/_rels/workbook.xml.rels"));
+  const targets = new Map<string, string>();
+  const relEls = rels.getElementsByTagName("Relationship");
+  for (let i = 0; i < relEls.length; i++) {
+    const id = relEls[i].getAttribute("Id") ?? "";
+    const target = relEls[i].getAttribute("Target") ?? "";
+    if (id && target) targets.set(id, target);
+  }
+  const sheets: { name: string; path: string }[] = [];
+  const sheetEls = wb.getElementsByTagName("sheet");
+  for (let i = 0; i < sheetEls.length; i++) {
+    const name = sheetEls[i].getAttribute("name") ?? `Hoja${i + 1}`;
+    const rid =
+      sheetEls[i].getAttribute("r:id") ??
+      sheetEls[i].getAttributeNS(
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        "id",
+      ) ??
+      "";
+    const target = targets.get(rid);
+    if (target) sheets.push({ name, path: `xl/${target.replace(/^\//, "")}` });
+  }
+  if (sheets.length === 0) throw new Error("Excel sin hojas legibles");
+
+  const shared: string[] = [];
+  try {
+    const ss = parse(await file("xl/sharedStrings.xml"));
+    const siEls = ss.getElementsByTagName("si");
+    for (let i = 0; i < siEls.length; i++) {
+      const tEls = siEls[i].getElementsByTagName("t");
+      let text = "";
+      for (let j = 0; j < tEls.length; j++) text += tEls[j].textContent ?? "";
+      shared.push(text);
+    }
+  } catch {
+    // sin sharedStrings: se usan valores inline
+  }
+
   const out: string[] = [];
-  for (const name of wb.SheetNames.slice(0, 10)) {
-    const csv = utils.sheet_to_csv(wb.Sheets[name]);
-    if (csv.trim()) out.push(`[Hoja: ${name}]\n${csv.slice(0, 40_000)}`);
+  for (const sheet of sheets.slice(0, 10)) {
+    const doc = parse(await file(sheet.path));
+    const rowEls = doc.getElementsByTagName("row");
+    const lines: string[] = [];
+    for (let i = 0; i < rowEls.length; i++) {
+      const cellEls = rowEls[i].getElementsByTagName("c");
+      const parts: { col: number; v: string }[] = [];
+      let maxCol = -1;
+      for (let j = 0; j < cellEls.length; j++) {
+        const c = cellEls[j];
+        const ref = c.getAttribute("r") ?? "";
+        const col = colToIndex(ref.replace(/[^A-Za-z]/g, "") || "A");
+        const t = c.getAttribute("t");
+        let v: string;
+        if (t === "s") {
+          const idx = parseInt(cellText(c, "v"), 10);
+          v = Number.isFinite(idx) ? (shared[idx] ?? "") : "";
+        } else if (t === "inlineStr") {
+          v = cellText(c, "t");
+        } else if (t === "b") {
+          const raw = cellText(c, "v");
+          v = raw === "1" ? "TRUE" : raw === "0" ? "FALSE" : raw;
+        } else {
+          v = cellText(c, "v");
+        }
+        parts.push({ col, v });
+        if (col > maxCol) maxCol = col;
+      }
+      const arr: string[] = new Array(maxCol + 1).fill("");
+      for (const p of parts) arr[p.col] = p.v;
+      if (arr.join("").replace(/[\s,;]+/g, "")) lines.push(arr.join(","));
+    }
+    const text = lines.join("\n").slice(0, 40_000);
+    if (text.trim()) out.push(`[Hoja: ${sheet.name}]\n${text}`);
   }
   if (out.length === 0) throw new Error("Excel sin celdas con texto legible");
   return out.join("\n\n");

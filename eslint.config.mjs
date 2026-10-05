@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Archivos servidos tal cual (pdf.js worker, apuntes): no lint.
+    "public/**",
   ]),
 ]);
 
