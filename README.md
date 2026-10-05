@@ -4,7 +4,7 @@ Chat web donde los alumnos preguntan sobre los apuntes y envían sus trabajos pa
 corrección y feedback con IA. Cada alumno usa su **propia API key gratuita de Gemini**
 (BYOK): el profesor no paga nada y no necesita dejar ningún PC encendido.
 
-- **Demo en producción:** https://ia-pe-gamma.vercel.app
+- **Demo en producción:** [https://ia-pe-gamma.vercel.app](https://ai-website-cloner-pe-a20f.vercel.app/)
 - **Repo:** https://github.com/cce-ops/tutor-asignatura
 
 > Proyecto basado en la plantilla
