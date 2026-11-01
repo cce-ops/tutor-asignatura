@@ -1,4 +1,5 @@
 export const GEMINI_MODELS = [
+  { id: "gemini-flash-latest", label: "Flash Latest (Alias actualizado automáticamente)", recommended: true },
   { id: "gemini-3.5-flash-lite", label: "Flash-Lite 3.5 (recomendado: más cuota)" },
   { id: "gemini-3.1-flash-lite", label: "Flash-Lite 3.1 (alternativa con cuota)" },
   { id: "gemini-3.5-flash", label: "Flash 3.5 (mejor calidad)" },
@@ -7,7 +8,7 @@ export const GEMINI_MODELS = [
   { id: "gemini-3.8-flash", label: "Flash 3.8 (más nuevo)" },
 ] as const;
 
-export const DEFAULT_MODEL = "gemini-3.5-flash-lite";
+export const DEFAULT_MODEL = "gemini-flash-latest";
 
 export type ChatRole = "user" | "model";
 
