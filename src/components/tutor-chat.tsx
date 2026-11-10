@@ -10,11 +10,18 @@ import {
   DEFAULT_MODEL,
   GEMINI_MODELS,
   buildSystemPrompt,
+  buildRagSystemPrompt,
   fileToOutgoing,
   sendToGeminiWithFallback,
   type ChatTurn,
   type OutgoingFile,
 } from "@/lib/gemini";
+import {
+  indexApuntes,
+  retrieveTopK,
+  hasIndexedChunks,
+  type RagProgress,
+} from "@/lib/rag";
 
 interface Message extends ChatTurn {
   files?: string[];
@@ -28,7 +35,10 @@ export default function TutorChat() {
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState<string>(DEFAULT_MODEL);
   const [apuntes, setApuntes] = useState("Cargando apuntes…");
+  const [ragProgress, setRagProgress] = useState<RagProgress>({ stage: "idle", done: 0, total: 0 });
+  const [ragReady, setRagReady] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const indexingRef = useRef(false);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<OutgoingFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -58,6 +68,31 @@ export default function TutorChat() {
     }
   }
 
+  async function runIndexing(text: string, key: string) {
+    if (indexingRef.current) return;
+    indexingRef.current = true;
+    setRagReady(false);
+    setRagProgress({ stage: "chunking", done: 0, total: 1, message: "Preparando RAG…" });
+    try {
+      const { indexApuntes } = await import("@/lib/rag");
+      const res = await indexApuntes(key, text, [], (p) => setRagProgress(p));
+      setRagReady(res.chunks.length > 0);
+      if (res.chunks.length === 0) {
+        setRagProgress({ stage: "ready", done: 0, total: 0, message: "Sin texto indexable; se usará contexto completo" });
+      }
+    } catch (e) {
+      setRagProgress({
+        stage: "error",
+        done: 0,
+        total: 0,
+        message: e instanceof Error ? e.message : "Error indexando; se usará contexto completo",
+      });
+      setRagReady(false);
+    } finally {
+      indexingRef.current = false;
+    }
+  }
+
   useEffect(() => {
     try {
       const k = localStorage.getItem(API_KEY_LS);
@@ -76,6 +111,13 @@ export default function TutorChat() {
     }
     void reloadFromFolder();
   }, []);
+
+  // Indexar apuntes cuando haya API key y texto cargado.
+  useEffect(() => {
+    if (!apiKey || !apuntes || apuntes.startsWith("Cargando") || apuntes.startsWith("No se")) return;
+    void runIndexing(apuntes, apiKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey, apuntes]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -137,11 +179,27 @@ export default function TutorChat() {
     // así que quitamos el último para no duplicar
     const past = history.slice(0, -1);
     setMessages((m) => [...m, userMsg]);
+    // RAG: si hay índice y no se adjuntan archivos, recuperar solo los
+    // fragmentos relevantes en vez de pasar todo el texto.
+    let systemPrompt = buildSystemPrompt(apuntes);
+    if (ragReady && files.length === 0) {
+      try {
+        setStatus("Buscando fragmentos relevantes…");
+        const { retrieveTopK } = await import("@/lib/rag");
+        const { text: ctx, sources: srcs } = await retrieveTopK(key, userText || input.trim(), 6);
+        if (ctx) {
+          systemPrompt = buildRagSystemPrompt(ctx, srcs);
+        }
+      } catch {
+        // Si falla la recuperación, se usa el contexto completo.
+      }
+    }
+
     try {
       const { text: reply, modelUsed } = await sendToGeminiWithFallback({
         apiKey: key,
         model,
-        systemPrompt: buildSystemPrompt(apuntes),
+        systemPrompt,
         history: past,
         userText:
           !userText && files.length > 0
@@ -238,6 +296,15 @@ export default function TutorChat() {
             {apuntesLoading
               ? "Leyendo documentos…"
               : `La IA tiene en cuenta ${sources.filter((s) => !s.skipped).length} documentos de la asignatura.`}
+          </div>
+          <div className="rounded-lg bg-secondary/60 p-2 text-xs">
+            {ragProgress.stage === "embedding" || ragProgress.stage === "chunking" || ragProgress.stage === "storing"
+              ? `Indexando (RAG): ${ragProgress.message ?? ""}`
+              : ragReady
+                ? `RAG listo: ${ragProgress.done} fragmentos indexados.`
+                : ragProgress.stage === "error"
+                  ? `RAG no disponible: ${ragProgress.message ?? "error"}. Se usará contexto completo.`
+                  : "RAG en espera (introduce tu API key)."}
           </div>
         </section>
 
