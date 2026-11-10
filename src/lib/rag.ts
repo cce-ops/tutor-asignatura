@@ -1,19 +1,20 @@
 // RAG (Retrieval-Augmented Generation) gratuito en el navegador.
 //
 // Estrategia:
-// - Chunking del texto de los apuntes.
+// - Chunking por secciones (encabezados/parrafos) con solapamiento.
 // - Embeddings con la API gratuita de Gemini (text-embedding-004) usando la
 //   API key del alumno (BYOK).
 // - Almacenamiento persistente en IndexedDB (sin backend, sin coste).
-// - Recuperación por similitud coseno (top-k) y paso solo de los chunks
-//   relevantes al modelo generativo.
+// - Recuperacion por MMR (Maximal Marginal Relevance) para diversidad.
+// - Query expansion: genera variantes de la pregunta para mejorar recall.
+// - Cache por hash: no re-embedea si los apuntes no han cambiado.
 //
-// Si algo falla (sin key, cuota agotada, IndexedDB bloqueado), el caller
-// debe caer al modo clásico de "context-stuffing" (todo el texto en el prompt).
+// Si algo falla, el caller debe caer al modo clasico de "context-stuffing".
 
 const DB_NAME = "tutor-rag";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = "chunks";
+const META_STORE = "meta";
 const EMBED_MODEL = "text-embedding-004";
 const EMBED_ENDPOINT = (model: string, key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
@@ -23,6 +24,7 @@ const EMBED_ENDPOINT = (model: string, key: string) =>
 export interface RagChunk {
   id: string;
   source: string;
+  section: string;
   text: string;
   embedding: number[];
 }
@@ -39,7 +41,25 @@ export interface RagResult {
   progress: RagProgress;
 }
 
-// ---------- Chunking ----------
+// ---------- Hash (para cache) ----------
+
+async function hashText(text: string): Promise<string> {
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+  // fallback simple
+  let h = 0;
+  for (let i = 0; i < text.length; i++) {
+    h = (h << 5) - h + text.charCodeAt(i);
+    h |= 0;
+  }
+  return String(h);
+}
+
+// ---------- Chunking por secciones ----------
 
 export function chunkText(
   text: string,
@@ -49,34 +69,68 @@ export function chunkText(
 ): RagChunk[] {
   const cleaned = text.replace(/\r/g, "").trim();
   if (!cleaned) return [];
-  const chunks: RagChunk[] = [];
-  let i = 0;
-  let idx = 0;
-  while (i < cleaned.length) {
-    const end = Math.min(i + chunkSize, cleaned.length);
-    let slice = cleaned.slice(i, end);
-    // intentar cortar en límite de párrafo o frase para no partir a mitad
-    if (end < cleaned.length) {
-      const lastNl = slice.lastIndexOf("\n");
-      const lastDot = slice.lastIndexOf(". ");
-      const cut = Math.max(lastNl, lastDot);
-      if (cut > chunkSize * 0.5) {
-        slice = slice.slice(0, cut + 1);
+
+  // 1. Dividir por secciones (encabezados Markdown o bloques separados por línea en blanco)
+  const sections: { title: string; body: string }[] = [];
+  const lines = cleaned.split("\n");
+  let currentTitle = source;
+  let currentBody: string[] = [];
+
+  for (const line of lines) {
+    const headerMatch = line.match(/^#{1,3}\s+(.+)$/);
+    if (headerMatch) {
+      if (currentBody.length > 0) {
+        sections.push({ title: currentTitle, body: currentBody.join("\n").trim() });
       }
+      currentTitle = headerMatch[1].trim();
+      currentBody = [];
+    } else {
+      currentBody.push(line);
     }
-    const trimmed = slice.trim();
-    if (trimmed.length > 40) {
-      chunks.push({
-        id: `${source}#${idx}`,
-        source,
-        text: trimmed,
-        embedding: [],
-      });
-      idx += 1;
+  }
+  if (currentBody.length > 0) {
+    sections.push({ title: currentTitle, body: currentBody.join("\n").trim() });
+  }
+
+  // Si no hay secciones (texto plano sin encabezados), tratar todo como una sección
+  if (sections.length === 0) {
+    sections.push({ title: source, body: cleaned });
+  }
+
+  // 2. Chunk dentro de cada sección si es muy larga
+  const chunks: RagChunk[] = [];
+  let idx = 0;
+  for (const sec of sections) {
+    if (!sec.body) continue;
+    if (sec.body.length <= chunkSize) {
+      if (sec.body.length > 40) {
+        chunks.push({ id: `${source}#${idx}`, source, section: sec.title, text: sec.body, embedding: [] });
+        idx += 1;
+      }
+      continue;
     }
-    const advance = Math.max(1, slice.length - overlap);
-    i += advance;
-    if (i >= cleaned.length) break;
+    // chunk con solapamiento, cortando en límites de frase
+    let i = 0;
+    while (i < sec.body.length) {
+      const end = Math.min(i + chunkSize, sec.body.length);
+      let slice = sec.body.slice(i, end);
+      if (end < sec.body.length) {
+        const lastNl = slice.lastIndexOf("\n");
+        const lastDot = slice.lastIndexOf(". ");
+        const cut = Math.max(lastNl, lastDot);
+        if (cut > chunkSize * 0.5) {
+          slice = slice.slice(0, cut + 1);
+        }
+      }
+      const trimmed = slice.trim();
+      if (trimmed.length > 40) {
+        chunks.push({ id: `${source}#${idx}`, source, section: sec.title, text: trimmed, embedding: [] });
+        idx += 1;
+      }
+      const advance = Math.max(1, slice.length - overlap);
+      i += advance;
+      if (i >= sec.body.length) break;
+    }
   }
   return chunks;
 }
@@ -96,6 +150,9 @@ function openDb(): Promise<IDBDatabase> {
         const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
         store.createIndex("source", "source", { unique: false });
       }
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE, { keyPath: "key" });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error("Error abriendo IndexedDB"));
@@ -105,11 +162,11 @@ function openDb(): Promise<IDBDatabase> {
 export async function clearRagStore(): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const req = store.clear();
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error ?? new Error("Error limpiando store"));
+    const tx = db.transaction([STORE_NAME, META_STORE], "readwrite");
+    tx.objectStore(STORE_NAME).clear();
+    tx.objectStore(META_STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("Error limpiando store"));
   });
   db.close();
 }
@@ -123,7 +180,6 @@ export async function saveChunks(chunks: RagChunk[]): Promise<void> {
     for (const c of chunks) store.put(c);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error ?? new Error("Error guardando chunks"));
-    tx.onabort = () => reject(tx.error ?? new Error("Transacción abortada"));
   });
   db.close();
 }
@@ -139,6 +195,31 @@ export async function loadAllChunks(): Promise<RagChunk[]> {
   });
   db.close();
   return chunks;
+}
+
+// ---------- Meta (hash de apuntes) ----------
+
+async function saveMeta(key: string, value: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(META_STORE, "readwrite");
+    tx.objectStore(META_STORE).put({ key, value });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error("Error guardando meta"));
+  });
+  db.close();
+}
+
+async function loadMeta(key: string): Promise<string | null> {
+  const db = await openDb();
+  const val = await new Promise<string | null>((resolve, reject) => {
+    const tx = db.transaction(META_STORE, "readonly");
+    const req = tx.objectStore(META_STORE).get(key);
+    req.onsuccess = () => resolve((req.result as { value: string } | undefined)?.value ?? null);
+    req.onerror = () => reject(req.error ?? new Error("Error leyendo meta"));
+  });
+  db.close();
+  return val;
 }
 
 // ---------- Embeddings (Gemini, gratuito) ----------
@@ -185,13 +266,12 @@ export async function embedTexts(
     out.push(...embs);
     done += batch.length;
     onProgress?.(done, texts.length);
-    // pequeña pausa para no saturar la cuota gratuita
     if (i + BATCH < texts.length) await new Promise((r) => setTimeout(r, 200));
   }
   return out;
 }
 
-// ---------- Indexación ----------
+// ---------- Indexación con cache por hash ----------
 
 export async function indexApuntes(
   apiKey: string,
@@ -199,11 +279,19 @@ export async function indexApuntes(
   sources: { file: string }[],
   onProgress?: (p: RagProgress) => void,
 ): Promise<RagResult> {
+  const textHash = await hashText(apuntesText);
+
+  // Cache: si el hash coincide, no re-embedear
+  const cachedHash = await loadMeta("apuntes_hash").catch(() => null);
+  const existingChunks = await loadAllChunks().catch(() => []);
+  if (cachedHash === textHash && existingChunks.length > 0) {
+    onProgress?.({ stage: "ready", done: existingChunks.length, total: existingChunks.length, message: `Cache: ${existingChunks.length} fragmentos (sin re-indexar)` });
+    return { chunks: existingChunks, progress: { stage: "ready", done: existingChunks.length, total: existingChunks.length } };
+  }
+
   onProgress?.({ stage: "chunking", done: 0, total: 1, message: "Dividiendo en chunks…" });
-  // chunk por fuente si es posible; si no, chunk del texto completo
   const allChunks: RagChunk[] = [];
   const fileSections = apuntesText.split(/===== Fuente: (.+?) =====/);
-  // fileSections: [pre, file1, text1, file2, text2, ...]
   if (fileSections.length >= 3) {
     for (let i = 1; i < fileSections.length; i += 2) {
       const file = fileSections[i].trim();
@@ -227,36 +315,50 @@ export async function indexApuntes(
   onProgress?.({ stage: "storing", done: 0, total: allChunks.length, message: "Guardando en IndexedDB…" });
   await clearRagStore();
   await saveChunks(allChunks);
+  await saveMeta("apuntes_hash", textHash);
 
-  onProgress?.({ stage: "ready", done: allChunks.length, total: allChunks.length, message: `Indexados ${allChunks.length} chunks` });
+  onProgress?.({ stage: "ready", done: allChunks.length, total: allChunks.length, message: `Indexados ${allChunks.length} fragmentos` });
   return { chunks: allChunks, progress: { stage: "ready", done: allChunks.length, total: allChunks.length } };
 }
 
-// ---------- Retrieval ----------
+// ---------- Query expansion ----------
 
-export async function retrieveTopK(
-  apiKey: string,
-  query: string,
-  k = 6,
-): Promise<{ text: string; sources: string[] }> {
-  const chunks = await loadAllChunks();
-  if (chunks.length === 0) {
-    return { text: "", sources: [] };
+export async function expandQuery(apiKey: string, query: string): Promise<string[]> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text: `Genera 2 variantes cortas de la siguiente pregunta de un alumno de ingeniería, usando sinónimos y reformulaciones. Devuelve SOLO las 2 variantes, una por línea, sin numeración ni explicación.\n\nPregunta: ${query}`,
+          },
+        ],
+      },
+    ],
+    generationConfig: { temperature: 0.3, maxOutputTokens: 120 },
+  };
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return [query];
+    const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+    const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    const variants = text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 5)
+      .slice(0, 2);
+    return [query, ...variants];
+  } catch {
+    return [query];
   }
-  // embed query
-  const qEmb = (await embedTexts(apiKey, [query]))[0];
-  const scored = chunks.map((c) => ({
-    chunk: c,
-    score: cosine(qEmb, c.embedding),
-  }));
-  scored.sort((a, b) => b.score - a.score);
-  const top = scored.slice(0, k);
-  const sources = Array.from(new Set(top.map((s) => s.chunk.source)));
-  const text = top
-    .map((s, i) => `--- Fragmento ${i + 1} (${s.chunk.source}) ---\n${s.chunk.text}`)
-    .join("\n\n");
-  return { text, sources };
 }
+
+// ---------- MMR retrieval ----------
 
 function cosine(a: number[], b: number[]): number {
   if (a.length !== b.length || a.length === 0) return 0;
@@ -272,7 +374,86 @@ function cosine(a: number[], b: number[]): number {
   return denom === 0 ? 0 : dot / denom;
 }
 
-// ---------- Helpers ----------
+function mmr(
+  queryEmb: number[],
+  candidates: { chunk: RagChunk; score: number }[],
+  k: number,
+  lambda = 0.7,
+): RagChunk[] {
+  const selected: RagChunk[] = [];
+  const selectedEmbs: number[][] = [];
+  const remaining = [...candidates];
+
+  while (selected.length < k && remaining.length > 0) {
+    let bestIdx = 0;
+    let bestScore = -Infinity;
+    for (let i = 0; i < remaining.length; i++) {
+      const cand = remaining[i];
+      const relevance = cand.score;
+      let maxSim = 0;
+      for (const se of selectedEmbs) {
+        const sim = cosine(cand.chunk.embedding, se);
+        if (sim > maxSim) maxSim = sim;
+      }
+      const mmrScore = lambda * relevance - (1 - lambda) * maxSim;
+      if (mmrScore > bestScore) {
+        bestScore = mmrScore;
+        bestIdx = i;
+      }
+    }
+    const chosen = remaining.splice(bestIdx, 1)[0];
+    selected.push(chosen.chunk);
+    selectedEmbs.push(chosen.chunk.embedding);
+  }
+  return selected;
+}
+
+export async function retrieveTopK(
+  apiKey: string,
+  query: string,
+  k = 6,
+  useExpansion = true,
+): Promise<{ text: string; sources: string[] }> {
+  const chunks = await loadAllChunks();
+  if (chunks.length === 0) {
+    return { text: "", sources: [] };
+  }
+
+  // Query expansion
+  const queries = useExpansion ? await expandQuery(apiKey, query) : [query];
+
+  // Embed all queries
+  const queryEmbs = await embedTexts(apiKey, queries);
+
+  // Para cada query, puntuar todos los chunks
+  const candidateMap = new Map<string, { chunk: RagChunk; score: number }>();
+  for (const qEmb of queryEmbs) {
+    for (const c of chunks) {
+      const score = cosine(qEmb, c.embedding);
+      const existing = candidateMap.get(c.id);
+      if (!existing || score > existing.score) {
+        candidateMap.set(c.id, { chunk: c, score });
+      }
+    }
+  }
+  const candidates = Array.from(candidateMap.values());
+
+  // MMR para diversidad
+  const selected = mmr(queryEmbs[0], candidates, k);
+
+  // Deduplicación por similitud alta
+  const deduped: RagChunk[] = [];
+  for (const c of selected) {
+    const isDup = deduped.some((d) => cosine(c.embedding, d.embedding) > 0.95);
+    if (!isDup) deduped.push(c);
+  }
+
+  const sources = Array.from(new Set(deduped.map((s) => s.source)));
+  const text = deduped
+    .map((s, i) => `--- Fragmento ${i + 1} (${s.source}${s.section ? " · " + s.section : ""}) ---\n${s.text}`)
+    .join("\n\n");
+  return { text, sources };
+}
 
 export function hasIndexedChunks(): Promise<boolean> {
   return loadAllChunks().then((c) => c.length > 0);
